@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(135deg, #fbcfe8 0%, #f472b6 50%, #e11d48 100%);
+    min-height: 100vh;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Carte Verre Dépoli */
+.glass-card {
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 10px 25px rgba(225, 29, 72, 0.12);
+}
+
+/* Boutons QCM Améliorés */
+.love-btn-option {
+  background: #ffffff;
+  border: 2px solid #fbcfe8;
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.love-btn-option:hover {
+  transform: translateY(-2px);
+  border-color: #ec4899;
+  background: #fdf2f8;
+  box-shadow: 0 6px 15px rgba(236, 72, 153, 0.15);
+}
+
+/* Masquer la barre de scroll disgracieuse */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
