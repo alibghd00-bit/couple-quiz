@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import { generate1000Questions } from './data/generateQuestions';
-
-const categoriesData = generate1000Questions();
 
 export default function App() {
   const [userName, setUserName] = useState(localStorage.getItem('quiz_user') || '');
   const [roomCode, setRoomCode] = useState(localStorage.getItem('quiz_room') || '');
   const [isJoined, setIsJoined] = useState(!!(userName && roomCode));
   const [selectedCategory, setSelectedCategory] = useState(null);
+
+  // 🚀 OPTIMISATION PERF : Les 1000 questions sont générées une seule fois en arrière-plan
+  const categoriesData = useMemo(() => generate1000Questions(), []);
 
   const handleJoin = (e) => {
     e.preventDefault();
@@ -44,7 +45,7 @@ export default function App() {
               type="text" 
               value={userName} 
               onChange={(e) => setUserName(e.target.value)} 
-              placeholder="Ex: Sara / Ali" 
+              placeholder="Ex: Majda / Ali" 
               style={{ width: '100%', padding: '0.8rem', borderRadius: '0.75rem', border: '1px solid #fbcfe8', outline: 'none', boxSizing: 'border-box', fontSize: '1rem' }} 
               required 
             />
@@ -102,13 +103,13 @@ export default function App() {
         <main>
           {!selectedCategory ? (
             <div>
-              <div style={{ textAlignment: 'center', textAlign: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
                 <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: '800', color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>Choisis une catégorie 🌹</h3>
                 <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#fce7f3' }}>100 thèmes pour mieux vous découvrir</p>
               </div>
 
-              {/* LISTE DES CATÉGORIES EN VERTICALE UNIPOLAIRE */}
-              <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '72vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
+              {/* LISTE DES CATÉGORIES EN VERTICALE */}
+              <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '70vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
                 {categoriesData.map((cat) => (
                   <button
                     key={cat.category_id}
