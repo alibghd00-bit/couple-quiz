@@ -7,9 +7,37 @@ export default function App() {
   const [roomCode, setRoomCode] = useState(localStorage.getItem('quiz_room') || '');
   const [isJoined, setIsJoined] = useState(!!(userName && roomCode));
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' ou 'quiz'
+  const [allRoomAnswers, setAllRoomAnswers] = useState([]);
 
-  // 🚀 OPTIMISATION PERF : Les 1000 questions sont générées une seule fois en arrière-plan
+  // Optimisation performance des 1000 questions
   const categoriesData = useMemo(() => generate1000Questions(), []);
+
+  // Récupération globale des réponses pour les stats du Dashboard
+  useEffect(() => {
+    if (!isJoined || !roomCode) return;
+
+    const fetchAllRoomAnswers = async () => {
+      const { data } = await supabase
+        .from('answers')
+        .select('*')
+        .eq('room_id', roomCode);
+      if (data) setAllRoomAnswers(data);
+    };
+
+    fetchAllRoomAnswers();
+
+    const channel = supabase
+      .channel('room_stats')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'answers', filter: `room_id=eq.${roomCode}` }, (payload) => {
+        setAllRoomAnswers((prev) => [...prev, payload.new]);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isJoined, roomCode]);
 
   const handleJoin = (e) => {
     e.preventDefault();
@@ -25,6 +53,50 @@ export default function App() {
     setIsJoined(false);
     setSelectedCategory(null);
   };
+
+  // Calcul des statistiques globales pour le Dashboard
+  const stats = useMemo(() => {
+    const users = Array.from(new Set(allRoomAnswers.map((a) => a.user_id)));
+    const partnerName = users.find((u) => u !== userName) || 'Partenaire';
+
+    // Regrouper par catégorie et par question
+    const answerMap = {};
+    allRoomAnswers.forEach((ans) => {
+      const key = `${ans.category_id}_${ans.question_id}`;
+      if (!answerMap[key]) answerMap[key] = {};
+      answerMap[key][ans.user_id] = ans.selected_option;
+    });
+
+    let totalBothAnswered = 0;
+    let totalMatches = 0;
+    const completedCategoriesSet = new Set();
+
+    Object.entries(answerMap).forEach(([key, userMap]) => {
+      const userIds = Object.keys(userMap);
+      if (userIds.length >= 2) {
+        totalBothAnswered++;
+        const val1 = userMap[userIds[0]];
+        const val2 = userMap[userIds[1]];
+        if (val1 === val2) totalMatches++;
+
+        const categoryId = key.split('_')[0] + '_' + key.split('_')[1];
+        completedCategoriesSet.add(categoryId);
+      }
+    });
+
+    const overallMatchPercentage = totalBothAnswered > 0 
+      ? Math.round((totalMatches / totalBothAnswered) * 100) 
+      : 0;
+
+    return {
+      partnerName,
+      overallMatchPercentage,
+      totalBothAnswered,
+      totalMatches,
+      totalDisagreements: totalBothAnswered - totalMatches,
+      completedCategoriesCount: completedCategoriesSet.size,
+    };
+  }, [allRoomAnswers, userName]);
 
   // ÉCRAN DE CONNEXION
   if (!isJoined) {
@@ -76,13 +148,13 @@ export default function App() {
     );
   }
 
-  // ÉCRAN PRINCIPAL
+  // INTERFACE PRINCIPALE
   return (
     <div style={{ minHeight: '100vh', padding: '1rem', display: 'flex', justifyContent: 'center' }}>
       <div style={{ width: '100%', maxWidth: '440px' }}>
         
         {/* EN-TÊTE */}
-        <header className="glass-card" style={{ padding: '0.85rem 1.25rem', borderRadius: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <header className="glass-card" style={{ padding: '0.85rem 1.25rem', borderRadius: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '9999px', background: '#fce7f3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
               💖
@@ -100,16 +172,138 @@ export default function App() {
           </button>
         </header>
 
+        {/* NAVIGATION PAR ONGLETS (DASHBOARD VS QUIZ) */}
+        {!selectedCategory && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', background: 'rgba(255,255,255,0.4)', padding: '0.3rem', borderRadius: '1rem' }}>
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              style={{
+                flex: 1,
+                padding: '0.65rem',
+                borderRadius: '0.75rem',
+                border: 'none',
+                fontWeight: '800',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                background: activeTab === 'dashboard' ? '#ffffff' : 'transparent',
+                color: activeTab === 'dashboard' ? '#db2777' : '#ffffff',
+                boxShadow: activeTab === 'dashboard' ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              📊 Tableau de Bord
+            </button>
+            <button
+              onClick={() => setActiveTab('quiz')}
+              style={{
+                flex: 1,
+                padding: '0.65rem',
+                borderRadius: '0.75rem',
+                border: 'none',
+                fontWeight: '800',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                background: activeTab === 'quiz' ? '#ffffff' : 'transparent',
+                color: activeTab === 'quiz' ? '#db2777' : '#ffffff',
+                boxShadow: activeTab === 'quiz' ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              🎯 Thèmes QCM
+            </button>
+          </div>
+        )}
+
         <main>
-          {!selectedCategory ? (
+          {selectedCategory ? (
+            <QuizView 
+              category={selectedCategory} 
+              roomCode={roomCode} 
+              userName={userName} 
+              onBack={() => setSelectedCategory(null)} 
+            />
+          ) : activeTab === 'dashboard' ? (
+            /* TAB 1: DASHBOARD STATISTIQUES */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="glass-card" style={{ padding: '1.5rem', borderRadius: '1.5rem', textAlign: 'center' }}>
+                <span style={{ fontSize: '2rem' }}>💞</span>
+                <h3 style={{ margin: '0.25rem 0 0 0', fontSize: '1rem', color: '#6b7280', fontWeight: '700' }}>
+                  Score de Complicité avec {stats.partnerName}
+                </h3>
+                <div style={{ fontSize: '3.8rem', fontWeight: '900', color: '#ec4899', margin: '0.25rem 0' }}>
+                  {stats.overallMatchPercentage}%
+                </div>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: '#9d174d', fontWeight: '600' }}>
+                  {stats.totalBothAnswered > 0 
+                    ? `Calculé sur ${stats.totalBothAnswered} questions répondues ensemble !`
+                    : "Complétez une première catégorie ensemble pour voir votre score !"}
+                </p>
+              </div>
+
+              {/* GRILLE DES STATISTIQUES EN CHIFFRES */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="glass-card" style={{ padding: '1rem', borderRadius: '1.25rem', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.5rem' }}>🏆</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#1f2937', marginTop: '0.2rem' }}>
+                    {stats.completedCategoriesCount} / 100
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.7rem', color: '#6b7280', fontWeight: '600' }}>Thèmes Validés</p>
+                </div>
+
+                <div className="glass-card" style={{ padding: '1rem', borderRadius: '1.25rem', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.5rem' }}>🎯</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#059669', marginTop: '0.2rem' }}>
+                    {stats.totalMatches}
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.7rem', color: '#6b7280', fontWeight: '600' }}>Réponses Identiques</p>
+                </div>
+
+                <div className="glass-card" style={{ padding: '1rem', borderRadius: '1.25rem', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.5rem' }}>💬</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#dc2626', marginTop: '0.2rem' }}>
+                    {stats.totalDisagreements}
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.7rem', color: '#6b7280', fontWeight: '600' }}>Désaccords à Discuter</p>
+                </div>
+
+                <div className="glass-card" style={{ padding: '1rem', borderRadius: '1.25rem', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.5rem' }}>📝</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#2563eb', marginTop: '0.2rem' }}>
+                    {stats.totalBothAnswered}
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.7rem', color: '#6b7280', fontWeight: '600' }}>Questions Comparées</p>
+                </div>
+              </div>
+
+              {/* BOUTON D'ACTION DIRECTE VERS LE QUIZ */}
+              <button
+                onClick={() => setActiveTab('quiz')}
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(90deg, #ec4899, #f43f5e)',
+                  color: 'white',
+                  fontWeight: '800',
+                  padding: '1rem',
+                  borderRadius: '1.25rem',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  boxShadow: '0 4px 15px rgba(236,72,153,0.35)',
+                  marginTop: '0.25rem'
+                }}
+              >
+                Lancer une nouvelle catégorie ✨
+              </button>
+            </div>
+          ) : (
+            /* TAB 2: LISTE DES CATÉGORIES QCM */
             <div>
               <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
                 <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: '800', color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>Choisis une catégorie 🌹</h3>
                 <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#fce7f3' }}>100 thèmes pour mieux vous découvrir</p>
               </div>
 
-              {/* LISTE DES CATÉGORIES EN VERTICALE */}
-              <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '70vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
+              <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '65vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
                 {categoriesData.map((cat) => (
                   <button
                     key={cat.category_id}
@@ -139,13 +333,6 @@ export default function App() {
                 ))}
               </div>
             </div>
-          ) : (
-            <QuizView 
-              category={selectedCategory} 
-              roomCode={roomCode} 
-              userName={userName} 
-              onBack={() => setSelectedCategory(null)} 
-            />
           )}
         </main>
       </div>
@@ -239,7 +426,7 @@ function QuizView({ category, roomCode, userName, onBack }) {
   return (
     <div className="glass-card" style={{ padding: '1.5rem', borderRadius: '1.5rem', boxSizing: 'border-box' }}>
       <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#db2777', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer', padding: 0, marginBottom: '1rem' }}>
-        ← Retour aux thèmes
+        ← Retour au menu
       </button>
 
       {!isFinished ? (
