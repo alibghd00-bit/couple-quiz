@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabase';
-import { generate1000Questions } from './data/generateQuestions';
 
 export default function App() {
   const [userName, setUserName] = useState(localStorage.getItem('quiz_user') || '');
@@ -9,11 +8,67 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' ou 'quiz'
   const [allRoomAnswers, setAllRoomAnswers] = useState([]);
+  
+  // États pour les questions chargées depuis Supabase
+  const [categoriesData, setCategoriesData] = useState([]);
+  const [loadingQuestions, setLoadingQuestions] = useState(true);
 
-  // Optimisation performance des 1000 questions
-  const categoriesData = useMemo(() => generate1000Questions(), []);
+  // 1. Récupération des questions depuis Supabase
+  useEffect(() => {
+    if (!isJoined) return;
 
-  // Récupération globale des réponses pour les stats du Dashboard
+    const fetchQuestionsFromSupabase = async () => {
+      setLoadingQuestions(true);
+      const { data, error } = await supabase
+        .from('quiz_questions')
+        .select('*')
+        .order('id', { ascending: true });
+
+      if (error) {
+        console.error('Erreur lors du chargement des questions depuis Supabase:', error);
+        setLoadingQuestions(false);
+        return;
+      }
+
+      if (data) {
+        // Regrouper les lignes par category_id pour reconstruire la structure attendue
+        const grouped = {};
+        data.forEach((row) => {
+          if (!grouped[row.category_id]) {
+            grouped[row.category_id] = {
+              category_id: row.category_id,
+              category_name: row.category_name,
+              description: row.description || '',
+              questions: []
+            };
+          }
+
+          // Convertir la colonne options si elle arrive sous forme de chaîne JSON ou de tableau
+          let parsedOptions = row.options;
+          if (typeof row.options === 'string') {
+            try {
+              parsedOptions = JSON.parse(row.options);
+            } catch (e) {
+              console.error("Erreur de parse des options pour la question ID", row.id, e);
+            }
+          }
+
+          grouped[row.category_id].questions.push({
+            id: row.id,
+            question: row.question,
+            options: parsedOptions || []
+          });
+        });
+
+        setCategoriesData(Object.values(grouped));
+      }
+      setLoadingQuestions(false);
+    };
+
+    fetchQuestionsFromSupabase();
+  }, [isJoined]);
+
+  // 2. Récupération globale des réponses pour les stats du Dashboard
   useEffect(() => {
     if (!isJoined || !roomCode) return;
 
@@ -245,7 +300,7 @@ export default function App() {
                 <div className="glass-card" style={{ padding: '1rem', borderRadius: '1.25rem', textAlign: 'center' }}>
                   <div style={{ fontSize: '1.5rem' }}>🏆</div>
                   <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#1f2937', marginTop: '0.2rem' }}>
-                    {stats.completedCategoriesCount} / 100
+                    {stats.completedCategoriesCount} / {categoriesData.length}
                   </div>
                   <p style={{ margin: 0, fontSize: '0.7rem', color: '#6b7280', fontWeight: '600' }}>Thèmes Validés</p>
                 </div>
@@ -300,38 +355,49 @@ export default function App() {
             <div>
               <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
                 <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: '800', color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>Choisis une catégorie 🌹</h3>
-                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#fce7f3' }}>100 thèmes pour mieux vous découvrir</p>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#fce7f3' }}>
+                  {loadingQuestions ? "Chargement des questions depuis Supabase..." : `${categoriesData.length} thèmes disponibles`}
+                </p>
               </div>
 
-              <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '65vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                {categoriesData.map((cat) => (
-                  <button
-                    key={cat.category_id}
-                    onClick={() => setSelectedCategory(cat)}
-                    className="glass-card"
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '1rem 1.25rem',
-                      borderRadius: '1rem',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      cursor: 'pointer',
-                      border: '1px solid rgba(255,255,255,0.7)',
-                      boxSizing: 'border-box'
-                    }}
-                  >
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '700', color: '#1f2937' }}>
-                        {cat.category_name}
-                      </h4>
-                      <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#6b7280' }}>10 QCM • {cat.description}</p>
-                    </div>
-                    <span style={{ color: '#ec4899', fontSize: '1.2rem', fontWeight: 'bold', marginLeft: '0.5rem' }}>✨</span>
-                  </button>
-                ))}
-              </div>
+              {loadingQuestions ? (
+                <div className="glass-card" style={{ padding: '2rem', textAlign: 'center', color: '#be185d', borderRadius: '1rem' }}>
+                  <span style={{ fontSize: '2rem' }}>⌛</span>
+                  <p style={{ margin: '0.5rem 0 0 0', fontWeight: '700' }}>Récupération des questions...</p>
+                </div>
+              ) : (
+                <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '65vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                  {categoriesData.map((cat) => (
+                    <button
+                      key={cat.category_id}
+                      onClick={() => setSelectedCategory(cat)}
+                      className="glass-card"
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '1rem 1.25rem',
+                        borderRadius: '1rem',
+                        display: 'flex',
+                        justify: 'space-between',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        border: '1px solid rgba(255,255,255,0.7)',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '700', color: '#1f2937' }}>
+                          {cat.category_name}
+                        </h4>
+                        <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#6b7280' }}>
+                          {cat.questions.length} QCM • {cat.description}
+                        </p>
+                      </div>
+                      <span style={{ color: '#ec4899', fontSize: '1.2rem', fontWeight: 'bold', marginLeft: '0.5rem' }}>✨</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -384,7 +450,7 @@ function QuizView({ category, roomCode, userName, onBack }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [category, roomCode, userName]);
+  }, [category, roomCode, userName, questions.length]);
 
   const handleSelectOption = async (optionIdx) => {
     const qId = questions[currentQuestionIdx].id;
@@ -438,11 +504,11 @@ function QuizView({ category, roomCode, userName, onBack }) {
           </div>
 
           <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#1f2937', marginBottom: '1.25rem', lineHeight: '1.4' }}>
-            {questions[currentQuestionIdx].question}
+            {questions[currentQuestionIdx]?.question}
           </h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {questions[currentQuestionIdx].options.map((opt, idx) => (
+            {questions[currentQuestionIdx]?.options?.map((opt, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSelectOption(idx)}
@@ -458,7 +524,7 @@ function QuizView({ category, roomCode, userName, onBack }) {
                   fontSize: '0.85rem',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  justify: 'center',
                   flexShrink: 0,
                   border: '1px solid #fbcfe8'
                 }}>
